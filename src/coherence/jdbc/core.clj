@@ -164,10 +164,11 @@
   (throw e))
 
 (deftype Writer [conn tables]
-  c/Writer
+  c/Closed
   (closed? [_]
     (closed? conn))
 
+  c/Writer
   (commit! [_]
     (try
       (commit! conn)

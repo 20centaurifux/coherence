@@ -18,10 +18,12 @@
 (defprotocol Store
   (open-write [store]))
 
+(defprotocol Closed
+  (closed? [x]))
+
 ;;; write events
 
 (defprotocol Writer
-  (closed? [writer])
   (commit! [writer])
   (rollback! [writer])
   (next-seq-no [writer])
