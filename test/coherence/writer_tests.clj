@@ -1,25 +1,9 @@
 (ns coherence.writer-tests
-  (:require [clojure.spec.alpha :as s]
-            [clojure.test :refer [testing is]]
+  (:require [clojure.test :refer [testing is]]
             [clojure.test.check.generators :as gen]
-            [coherence.core :refer :all]
-            [coherence.specs])
+            [coherence.core :refer :all :exclude [transduce]]
+            [coherence.test-utils :as utils])
   (:import (coherence.core WriteConflictException)))
-
-(def ^:private event-gen
-  (s/gen :coherence.specs/event))
-
-(def ^:private action-gen
-  (s/gen :coherence.specs.event/action))
-
-(def ^:private effect-gen
-  (s/gen :coherence.specs.event/effect))
-
-(defn- now
-  []
-  (-> (java.time.Instant/now)
-      .getEpochSecond
-      java.time.Instant/ofEpochSecond))
 
 (defn test-open-write
   [store]
@@ -77,12 +61,12 @@
 (defn test-append
   [store]
   (testing "action returns nil"
-    (let [ev (gen/generate action-gen)]
+    (let [ev (gen/generate utils/action-gen)]
       (with-open [writer (open-write store)]
         (is nil? (append! writer ev)))))
 
   (testing "effect returns nil"
-    (let [ev (gen/generate effect-gen)]
+    (let [ev (gen/generate utils/effect-gen)]
       (with-open [writer (open-write store)]
         (is nil? (append! writer ev)))))
 
@@ -92,7 +76,7 @@
         (is (thrown? Exception (append! writer x))))))
 
   (testing "closed Writer throws exception"
-    (let [ev (gen/generate event-gen)]
+    (let [ev (gen/generate utils/event-gen)]
       (with-open [writer (open-write store)]
         (.close writer)
         (is (thrown? Exception (append! writer ev)))))))
@@ -105,7 +89,7 @@
         (is (= 1 seq-no)))))
 
   (testing "event increments next available seq-no"
-    (let [ev (gen/generate event-gen)]
+    (let [ev (gen/generate utils/event-gen)]
       (with-open [writer (open-write store)]
         (append! writer ev)
         (let [seq-no (next-seq-no writer)]
@@ -119,7 +103,7 @@
 (defn test-next-seq-no_after_commit
   [store]
   (testing "committed event increments next available seq-no"
-    (let [ev (gen/generate event-gen)]
+    (let [ev (gen/generate utils/event-gen)]
       ;; Append action and commit.
       (with-open [writer (open-write store)]
         (append! writer ev)
@@ -132,7 +116,7 @@
 (defn test-next-seq-no_after_rollback
   [store]
   (testing "rolled back event doesn't change next available seq-no"
-    (let [ev (gen/generate event-gen)]
+    (let [ev (gen/generate utils/event-gen)]
       ;; Append action and roll back.
       (with-open [writer (open-write store)]
         (append! writer ev)
@@ -152,14 +136,14 @@
   (testing "find conflicting action"
     (let [events [{:seq-no 1
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::create
                             :actor [:test 1]
                             :aggregate [:thing 1]
                             :patch {:a 1}}}
                   {:seq-no 2
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::update
                             :actor [:test 1]
                             :aggregate [:thing 1]
@@ -181,20 +165,20 @@
   (testing "find conflicting effect"
     (let [events [{:seq-no 1
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::create
                             :actor [:test 1]
                             :aggregate [:thing 1]
                             :patch {:a 1}}
-                   :triggers [[:test 1]]}
+                   :triggers #{[:test 1]}}
                   {:seq-no 2
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :effect {:reason ::whatever
                             :trigger [:test 1]}}
                   {:seq-no 3
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::update
                             :actor [:test 1]
                             :aggregate [:thing 1]
@@ -216,28 +200,28 @@
   (testing "skip other aggregates"
     (let [events [{:seq-no 1
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::create
                             :actor [:test 1]
                             :aggregate [:thing 1]
                             :patch {:a 1}}
-                   :triggers [[:test 1]]}
+                   :triggers #{[:test 1]}}
                   {:seq-no 2
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::create
                             :actor [:test 1]
                             :aggregate [:thing 2]
                             :patch {:a 2}}
-                   :triggers [[:test 2]]}
+                   :triggers #{[:test 2]}}
                   {:seq-no 3
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :effect {:reason ::whatever
                             :trigger [:test 1]}}
                   {:seq-no 4
                    :source ::test
-                   :timestamp (now)
+                   :timestamp (utils/now)
                    :action {:reason ::update
                             :actor [:test 1]
                             :aggregate [:thing 2]
@@ -262,7 +246,7 @@
   (testing "find next conflict"
     (let [ev {:seq-no 1
               :source ::test
-              :timestamp (now)
+              :timestamp (utils/now)
               :action {:reason ::create
                        :actor [:test 1]
                        :aggregate [:thing 1]
@@ -281,7 +265,7 @@
   (testing "find next conflict"
     (let [ev {:seq-no 1
               :source ::test
-              :timestamp (now)
+              :timestamp (utils/now)
               :action {:reason ::create
                        :actor [:test 1]
                        :aggregate [:thing 1]
@@ -298,14 +282,14 @@
 (defn test-write_conflict
   [store]
   (testing "concurrent events (single writer)"
-    (let [ev (assoc (gen/generate event-gen) :seq-no 1)]
+    (let [ev (assoc (gen/generate utils/event-gen) :seq-no 1)]
       (with-open [writer (open-write store)]
         (append! writer ev)
         (is (thrown? WriteConflictException (append! writer ev))))))
 
   (testing "concurrent events (two writers)"
-    (let [ev (assoc (gen/generate event-gen) :seq-no 1)
-          ev' (assoc (gen/generate event-gen) :seq-no 1)]
+    (let [ev (assoc (gen/generate utils/event-gen) :seq-no 1)
+          ev' (assoc (gen/generate utils/event-gen) :seq-no 1)]
       (with-open [writer (open-write store)
                   writer' (open-write store)]
         (append! writer ev)

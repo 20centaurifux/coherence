@@ -1,4 +1,5 @@
 (ns coherence.core
+  (:refer-clojure :exclude [transduce])
   (:require [clojure.spec.alpha :as s]
             [coherence.specs]
             [com.rpl.defexception :refer [defexception]]))
@@ -16,7 +17,8 @@
   (s/valid? :coherence.specs.event/effect x))
 
 (defprotocol Store
-  (open-write [store]))
+  (open-write [store])
+  (open-read [store]))
 
 (defprotocol Closed
   (closed? [x]))
@@ -89,3 +91,15 @@
         (commit! w)
         (rollback! w))
       results)))
+
+;;; read events
+
+(defprotocol Reader
+  (stream-events [reader xform f init offset]))
+
+(defn transduce
+  "Reduces an event stream with a transformation (xform f)."
+  [xform f init store & {:keys [offset] :or {offset 0}}]
+  (when (>= offset 0)
+    (with-open [r (open-read store)]
+      (stream-events r xform f init offset))))

@@ -24,7 +24,7 @@
 
 (defn- create-action-table-aggregate-index
   [relation]
-  {:create-index [(keyword (str (name relation) "-aggregate-idx"))
+  {:create-index [[(keyword (str (name relation) "-aggregate-idx")) :if-not-exists]
                   [relation :aggregate-kind :aggregate-id]]})
 
 (defn- create-effect-table
@@ -39,18 +39,18 @@
 
 (defn- create-effect-table-trigger-index
   [relation]
-  {:create-index [(keyword (str (name relation) "-trigger-idx"))
+  {:create-index [[(keyword (str (name relation) "-trigger-idx")) :if-not-exists]
                   [relation :trigger-kind :trigger-id]]})
 
 (defn- create-trigger-table
-  [trigger-table event-table]
+  [trigger-table action-table]
   {:create-table [trigger-table :if-not-exists]
    :with-columns
    [[:trigger-kind [:varchar 50] :not-null]
     [:trigger-id [:varchar 50] :not-null]
     [:seq-no :int :not-null]
     [[:primary-key :trigger-kind :trigger-id :seq-no]]
-    [[:foreign-key :seq-no] [:references event-table :seq-no]]]})
+    [[:foreign-key :seq-no] [:references action-table :seq-no]]]})
 
 (defn create-tables
   [{sql :sql {:keys [event action effect trigger]} :tables}]

@@ -1,4 +1,5 @@
 (ns coherence.core-tests
+  (:refer-clojure :exclude [transduce])
   (:require [clojure.spec.alpha :as s]
             [clojure.test :refer [deftest testing is]]
             [clojure.test.check.generators :as gen]
@@ -35,11 +36,11 @@
   (testing "arbitary data is no effect"
     (is (not (effect? (gen/generate gen/any))))))
 
-;;; append events
-
 (defprotocol ^:private Closable
   :extend-via-metadata true
   (close [this]))
+
+;;; write events
 
 (defmacro ^:private writer
   [& body]
@@ -325,3 +326,39 @@
         (is (= a a'))
         (is (#{:write-conflict} result'))
         (is (= b b'))))))
+
+;;; read events
+
+(defn- reader
+  [events]
+  (p/mock
+   Reader
+   (stream-events
+    [_ xform f init offset]
+    (let [xf (comp (filter #(>= (:seq-no %) offset))
+                   xform)]
+      (clojure.core/transduce xf f init events)))
+   Closable
+   (close [_])))
+
+(deftype ReaderStore [r]
+  Store
+  (open-read [_] r))
+
+(deftest test-transduce
+  (let [events (for [idx (range 1 5)] (gen/generate (action-gen idx)))]
+    (testing "without offset"
+      (let [reader (reader events)
+            store (->ReaderStore reader)
+            spy (p/spies reader)]
+        (let [result (transduce (map identity) conj [] store)]
+          (assert/called-once? (:stream-events spy))
+          (is (= events result)))))
+
+    (testing "with offset"
+      (let [reader (reader events)
+            store (->ReaderStore reader)
+            spy (p/spies reader)]
+        (let [result (transduce (map identity) conj [] store :offset 2)]
+          (assert/called-once? (:stream-events spy))
+          (is (= (drop 1 events) result)))))))

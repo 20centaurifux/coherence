@@ -13,6 +13,6 @@
   :main ^:skip-aot coherence.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
-             :test {:dependencies [[org.xerial/sqlite-jdbc "3.47.0.0"]
+             :test {:dependencies [[org.xerial/sqlite-jdbc "3.47.1.0"]
                                    [tortue/spy "2.15.0"]]}}
   :plugins [[dev.weavejester/lein-cljfmt "0.12.0"]])
