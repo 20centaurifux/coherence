@@ -5,34 +5,30 @@
             [clojure.test.check.generators :as gen]
             [coherence.core :refer :all]
             [spy.assert :as assert]
-            [spy.core :as spy]
-            [spy.protocol :as p]))
+            [spy.protocol :as p])
+  (:import coherence.core.WriteConflictException))
 
-(defn- action-gen
-  ([seq-no]
-   (gen/fmap #(assoc % :seq-no seq-no)
-             (s/gen :coherence.specs.event/action)))
-  ([]
-   (s/gen :coherence.specs.event/action)))
+;;; predicates
 
-(def ^:private effect-gen
-  (s/gen :coherence.specs.event/effect))
-
-;;; event predicates
+(deftest test-store?
+  (testing "Store is Store"
+    (is (store? (reify Store))))
+  (testing "arbitary data is no Store"
+    (is (not (store? (gen/generate gen/any))))))
 
 (deftest test-action?
   (testing "action is action"
-    (is (action? (gen/generate (action-gen)))))
+    (is (action? (gen/generate (s/gen :coherence.specs.event/action)))))
   (testing "effect is no action"
-    (is (not (action? (gen/generate effect-gen)))))
+    (is (not (action? (gen/generate (s/gen :coherence.specs.event/effect))))))
   (testing "arbitary data is no action"
     (is (not (action? (gen/generate gen/any))))))
 
 (deftest test-effect?
   (testing "effect is effect"
-    (is (effect? (gen/generate effect-gen))))
+    (is (effect? (gen/generate (s/gen :coherence.specs.event/effect)))))
   (testing "action is no effect"
-    (is (not (effect? (gen/generate (action-gen))))))
+    (is (not (effect? (gen/generate (s/gen :coherence.specs.event/action))))))
   (testing "arbitary data is no effect"
     (is (not (effect? (gen/generate gen/any))))))
 
@@ -54,24 +50,29 @@
   Store
   (open-write [_] w))
 
-(deftest test-append!-one
+(defn- action-gen
+  []
+  (gen/fmap #(dissoc % :seq-no)
+            (s/gen :coherence.specs.event/action)))
+
+(deftest test-rebase!-one
   (testing "seq-no greater than next available seq-no"
-    (let [ev (gen/generate (action-gen 2))
+    (let [action (gen/generate (action-gen))
           writer (writer
                   (next-seq-no [_] 1)
                   (rollback! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result
-              ev' :event}] (append-events! store [ev])]
+      (let [{result :result
+             next-seq-no' :next-seq-no} (rebase! store 2 [action])]
         (assert/called-once? (:next-seq-no spy))
         (assert/called-once? (:rollback! spy))
         (assert/called-once? (:close spy))
         (is (#{:invalid-seq-no} result))
-        (is (= ev ev')))))
+        (is (= 1 next-seq-no')))))
 
   (testing "seq-no equals next available seq-no"
-    (let [ev (gen/generate (action-gen 1))
+    (let [action (gen/generate (action-gen))
           writer (writer
                   (next-seq-no [_] 1)
                   (next-conflict [_ _ [_ _] _])
@@ -79,18 +80,18 @@
                   (commit! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result
-              ev' :event}] (append-events! store [ev])]
+      (let [{result :result
+             [ev] :events} (rebase! store 1 [action])]
         (assert/called-once? (:next-seq-no (p/spies writer)))
-        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [])
-        (assert/called-once-with? (:append! spy) writer ev)
+        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in action [:action :aggregate]) [])
+        (assert/called-once-with? (:append! spy) writer (assoc action :seq-no 1))
         (assert/called-once? (:commit! spy))
         (assert/called-once? (:close spy))
         (is (#{:ok} result))
-        (is (= ev ev')))))
+        (is (= (assoc action :seq-no 1) ev)))))
 
   (testing "seq-no equals next available seq-no, write conflict"
-    (let [ev (gen/generate (action-gen 1))
+    (let [action (gen/generate (action-gen))
           writer (writer
                   (next-seq-no [_] 1)
                   (next-conflict [_ _ [_ _] _])
@@ -98,20 +99,18 @@
                   (rollback! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let  [[{result :result
-               ev' :event}] (append-events! store [ev])]
+      (let  [{result :result
+              ex :exception} (rebase! store 1 [action])]
         (assert/called-once? (:next-seq-no (p/spies writer)))
-        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [])
-        (assert/called-once-with? (:append! spy) writer ev)
-        (is (= 'coherence.core.WriteConflictException
-               (-> (spy :append!) spy/first-response :thrown :via first :type)))
+        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in action [:action :aggregate]) [])
+        (assert/called-once-with? (:append! spy) writer (assoc action :seq-no 1))
         (assert/called-once? (:rollback! spy))
         (assert/called-once? (:close spy))
         (is (#{:write-conflict} result))
-        (is (= ev ev')))))
+        (is (instance? WriteConflictException ex)))))
 
   (testing "seq-no less than next available seq-no, no conflict found"
-    (let [ev (gen/generate (action-gen 1))
+    (let [action (gen/generate (action-gen))
           writer (writer
                   (next-seq-no [_] 2)
                   (next-conflict [_ _ [_ _] _])
@@ -119,18 +118,18 @@
                   (commit! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result
-              ev' :event}] (append-events! store [ev])]
+      (let [{result :result
+             [ev] :events} (rebase! store 1 [action])]
         (assert/called-once? (:next-seq-no (p/spies writer)))
         (assert/called-once-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [])
-        (assert/called-once-with? (:append! spy) writer (assoc ev :seq-no 2))
+        (assert/called-once-with? (:append! spy) writer (assoc action :seq-no 2))
         (assert/called-once? (:commit! spy))
         (assert/called-once? (:close spy))
         (is (#{:ok} result))
-        (is (= (assoc ev :seq-no 2) ev')))))
+        (is (= (assoc action :seq-no 2) ev)))))
 
   (testing "seq-no less than next available seq-no, no conflict found, write conflict"
-    (let [ev (gen/generate (action-gen 1))
+    (let [action (gen/generate (action-gen))
           writer (writer
                   (next-seq-no [_] 2)
                   (next-conflict [_ _ [_ _] _])
@@ -138,45 +137,46 @@
                   (rollback! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result
-              ev' :event}] (append-events! store [ev])]
+      (let [{result :result
+             ex :exception} (rebase! store 1 [action])]
         (assert/called-once? (:next-seq-no (p/spies writer)))
-        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [])
-        (assert/called-once-with? (:append! spy) writer (assoc ev :seq-no 2))
-        (is (= 'coherence.core.WriteConflictException
-               (-> (spy :append!) spy/first-response :thrown :via first :type)))
+        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in action [:action :aggregate]) [])
+        (assert/called-once-with? (:append! spy) writer (assoc action :seq-no 2))
         (assert/called-once? (:rollback! spy))
         (assert/called-once? (:close spy))
         (is (#{:write-conflict} result))
-        (is (= (assoc ev :seq-no 2) ev')))))
+        (is (instance? WriteConflictException ex)))))
 
   (testing "seq-no less than next available seq-no, conflict found"
-    (let [ev (gen/generate (action-gen 1))
-          conflict (assoc-in (gen/generate (action-gen 2))
-                             [:action :aggregate]
-                             (get-in ev [:action :aggregate]))
+    (let [action (gen/generate (action-gen))
+          conflict (-> (gen/generate (action-gen))
+                       (assoc :seq-no 2)
+                       (assoc-in [:action :aggregate] (get-in action [:action :aggregate])))
           writer (writer
                   (next-seq-no [_] 2)
                   (next-conflict [_ _ [_ _] _] conflict)
                   (rollback! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result
-              ours :ours
-              theirs :theirs}] (append-events! store [ev])]
+      (let [{result :result
+             events :events
+             {:keys [:ours :theirs]} :conflict} (rebase! store 1 [action])]
         (assert/called-once? (:next-seq-no (p/spies writer)))
-        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [])
+        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in action [:action :aggregate]) [])
         (assert/called-once? (:rollback! spy))
         (assert/called-once? (:close spy))
         (is (#{:conflict} result))
-        (is (= ours ev))
+        (is (empty? events))
+        (is (= (assoc action :seq-no 2) ours))
         (is (= theirs conflict)))))
 
   (testing "seq-no less than next available seq-no, resolve conflict"
-    (let [ev (gen/generate (action-gen 1))
-          conflict (assoc-in (gen/generate (action-gen 2))
-                             [:action :aggregate]
-                             (get-in ev [:action :aggregate]))
+    (let [action (gen/generate (action-gen))
+          conflict (-> (gen/generate (action-gen))
+                       (assoc :seq-no 2)
+                       (assoc-in
+                        [:action :aggregate]
+                        (get-in action [:action :aggregate])))
           writer (writer
                   (next-seq-no [_] 2)
                   (next-conflict [_ _ [_ _] resolved]
@@ -188,33 +188,33 @@
           spy (p/spies writer)
           store (->WriterStore writer)]
       ;; fail to append due to conflict
-      (let [[{result :result
-              ours :ours
-              theirs :theirs}] (append-events! store [ev])]
+      (let [{result :result
+             events :events
+             {:keys [:ours :theirs]} :conflict}  (rebase! store 1 [action])]
         (assert/called-once? (:next-seq-no (p/spies writer)))
-        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [])
+        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in action [:action :aggregate]) [])
         (assert/called-once? (:rollback! spy))
         (assert/called-once? (:close spy))
         (is (#{:conflict} result))
-        (is (= ours ev))
+        (is (empty? events))
+        (is (= (assoc action :seq-no 2) ours))
         (is (= theirs conflict)))
 
       ;; mark conflict as resolved & append
-      (let [[{result :result
-              ev' :event}] (append-events! store [ev] :resolved [1])]
+      (let [{:keys [:result :events]} (rebase! store 2 [action] :resolved [1])]
         (assert/called-n-times? (:next-seq-no (p/spies writer)) 2)
         (assert/called-n-times? (:next-conflict spy) 2)
-        (assert/called-with? (:next-conflict spy) writer 1 (get-in ev [:action :aggregate]) [1])
-        (assert/called-once-with? (:append! spy) writer (assoc ev :seq-no 2))
+        (assert/called-with? (:next-conflict spy) writer 2 (get-in action [:action :aggregate]) [1])
+        (assert/called-once-with? (:append! spy) writer (assoc action :seq-no 2))
         (assert/called-once? (:commit! spy))
         (assert/called-n-times? (:close spy) 2)
         (is (#{:ok} result))
-        (is (= (assoc ev :seq-no 2) ev'))))))
+        (is (= [(assoc action :seq-no 2)] events))))))
 
-(deftest test-append!-many
+(deftest test-rebase!-many
   (testing "append two events"
-    (let [a (gen/generate (action-gen 1))
-          b (gen/generate (action-gen 2))
+    (let [a (gen/generate (action-gen))
+          b (gen/generate (action-gen))
           seq-no (volatile! 0)
           writer (writer
                   (next-seq-no [_] (vswap! seq-no inc))
@@ -223,109 +223,85 @@
                   (commit! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result a' :event}
-             {result' :result b' :event}] (append-events! store [a b])]
-        (assert/called-n-times? (:next-seq-no (p/spies writer)) 2)
+      (let [{result :result
+             [a' b'] :events} (rebase! store 1 [a b])]
+        (assert/called-once? (:next-seq-no (p/spies writer)))
         (assert/called-n-times? (:next-conflict spy) 2)
         (assert/called-with? (:next-conflict spy) writer 1 (get-in a [:action :aggregate]) [])
-        (assert/called-with? (:next-conflict spy) writer 2 (get-in b [:action :aggregate]) [])
+        (assert/called-with? (:next-conflict spy) writer 1 (get-in b [:action :aggregate]) [])
         (assert/called-n-times? (:append! spy) 2)
-        (assert/called-with? (:append! spy) writer a)
-        (assert/called-with? (:append! spy) writer b)
+        (assert/called-with? (:append! spy) writer (assoc a :seq-no 1))
+        (assert/called-with? (:append! spy) writer (assoc b :seq-no 2))
         (assert/called-once? (:commit! (p/spies writer)))
         (assert/called-once? (:close (p/spies writer)))
         (is (#{:ok} result))
-        (is (= a a'))
-        (is (#{:ok} result'))
-        (is (= b b')))))
-
-  (testing "invalid seq-no terminates operation"
-    (let [a (gen/generate (action-gen 1))
-          b (gen/generate (action-gen 3))
-          c (gen/generate (action-gen 4))
-          seq-no (volatile! 0)
-          writer (writer
-                  (next-seq-no [_] (vswap! seq-no inc))
-                  (next-conflict [_ offset [_ _] _]
-                                 (when (= 2 offset)
-                                   a))
-                  (append! [_ _])
-                  (rollback! [_]))
-          spy (p/spies writer)
-          store (->WriterStore writer)]
-      (let [[{result :result a' :event}
-             {result' :result b' :event}] (append-events! store [a b c])]
-        (assert/called-at-least-n-times? (:next-seq-no (p/spies writer)) 2)
-        (assert/called-once? (:next-conflict spy))
-        (assert/called-with? (:next-conflict spy) writer 1 (get-in a [:action :aggregate]) [])
-        (assert/called-once-with? (:append! spy) writer a)
-        (assert/called-once? (:rollback! (p/spies writer)))
-        (assert/called-once? (:close (p/spies writer)))
-        (is (#{:ok} result))
-        (is (= a a'))
-        (is (#{:invalid-seq-no} result'))
-        (is (= b b')))))
+        (is (= (assoc a :seq-no 1) a'))
+        (is (= (assoc b :seq-no 2) b')))))
 
   (testing "conflict terminates operation"
-    (let [a (gen/generate (action-gen 1))
-          b (gen/generate (action-gen 2))
-          c (gen/generate (action-gen 3))
+    (let [a (gen/generate (action-gen))
+          b (gen/generate (action-gen))
+          c (gen/generate (action-gen))
+          conflict (-> (gen/generate (action-gen))
+                       (assoc :seq-no 3)
+                       (assoc-in
+                        [:action :aggregate]
+                        (get-in c [:action :aggregate])))
           seq-no (volatile! 0)
           writer (writer
                   (next-seq-no [_] (vswap! seq-no inc))
-                  (next-conflict [_ offset [_ _] _]
-                                 (when (= 2 offset)
-                                   a))
+                  (next-conflict [_ _ aggregate _]
+                                 (when (= (get-in c [:action :aggregate]) aggregate)
+                                   conflict))
                   (append! [_ _])
                   (rollback! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result a' :event}
-             {result' :result ours :ours theirs :theirs}] (append-events! store [a b c])]
-        (assert/called-n-times? (:next-seq-no (p/spies writer)) 2)
-        (assert/called-n-times? (:next-conflict spy) 2)
+      (let [{result :result
+             [a' b'] :events
+             {:keys [:ours :theirs]} :conflict} (rebase! store 1 [a b c])]
+        (assert/called-once? (:next-seq-no (p/spies writer)))
+        (assert/called-n-times? (:next-conflict spy) 3)
         (assert/called-with? (:next-conflict spy) writer 1 (get-in a [:action :aggregate]) [])
-        (assert/called-with? (:next-conflict spy) writer 2 (get-in b [:action :aggregate]) [])
-        (assert/called-once-with? (:append! spy) writer a)
+        (assert/called-with? (:next-conflict spy) writer 1 (get-in b [:action :aggregate]) [])
+        (assert/called-with? (:next-conflict spy) writer 1 (get-in c [:action :aggregate]) [])
+        (assert/not-called? (:append! spy))
         (assert/called-once? (:rollback! (p/spies writer)))
         (assert/called-once? (:close (p/spies writer)))
-        (is (#{:ok} result))
-        (is (= a a'))
-        (is (#{:conflict} result'))
-        (is (= ours b))
-        (is (= theirs a)))))
+        (is (#{:conflict} result))
+        (is (= (assoc a :seq-no 1) a'))
+        (is (= (assoc b :seq-no 2) b'))
+        (is (= (assoc c :seq-no 3) ours))
+        (is (= theirs conflict)))))
 
   (testing "write conflict terminates operation"
-    (let [a (gen/generate (action-gen 1))
-          b (gen/generate (action-gen 2))
-          c (gen/generate (action-gen 3))
+    (let [a (gen/generate (action-gen))
+          b (gen/generate (action-gen))
+          c (gen/generate (action-gen))
           seq-no (volatile! 0)
           writer (writer
                   (next-seq-no [_] (vswap! seq-no inc))
                   (next-conflict [_ _ [_ _] _])
                   (append! [_ ev]
-                           (when (= b ev)
+                           (when (= 2 (:seq-no ev))
                              (throw (->WriteConflictException))))
                   (rollback! [_]))
           spy (p/spies writer)
           store (->WriterStore writer)]
-      (let [[{result :result a' :event}
-             {result' :result b' :event}] (append-events! store [a b c])]
-        (assert/called-n-times? (:next-seq-no (p/spies writer)) 2)
-        (assert/called-n-times? (:next-conflict spy) 2)
+      (let [{result :result
+             ex :exception} (rebase! store 1 [a b c])]
+        (assert/called-once? (:next-seq-no (p/spies writer)))
+        (assert/called-n-times? (:next-conflict spy) 3)
         (assert/called-with? (:next-conflict spy) writer 1 (get-in a [:action :aggregate]) [])
-        (assert/called-with? (:next-conflict spy) writer 2 (get-in b [:action :aggregate]) [])
+        (assert/called-with? (:next-conflict spy) writer 1 (get-in b [:action :aggregate]) [])
+        (assert/called-with? (:next-conflict spy) writer 1 (get-in c [:action :aggregate]) [])
         (assert/called-n-times? (:append! spy) 2)
-        (assert/called-with? (:append! spy) writer a)
-        (assert/called-with? (:append! spy) writer b)
-        (is (= 'coherence.core.WriteConflictException
-               (-> (spy :append!) spy/responses second :thrown :via first :type)))
+        (assert/called-with? (:append! spy) writer (assoc a :seq-no 1))
+        (assert/called-with? (:append! spy) writer (assoc b :seq-no 2))
         (assert/called-once? (:rollback! (p/spies writer)))
         (assert/called-once? (:close (p/spies writer)))
-        (is (#{:ok} result))
-        (is (= a a'))
-        (is (#{:write-conflict} result'))
-        (is (= b b'))))))
+        (is (#{:write-conflict} result))
+        (is (instance? WriteConflictException ex))))))
 
 ;;; read events
 
@@ -346,7 +322,8 @@
   (open-read [_] r))
 
 (deftest test-transduce
-  (let [events (for [idx (range 1 5)] (gen/generate (action-gen idx)))]
+  (let [events (for [idx (range 1 5)] (-> (gen/generate (action-gen))
+                                          (assoc :seq-no idx)))]
     (testing "without offset"
       (let [reader (reader events)
             store (->ReaderStore reader)

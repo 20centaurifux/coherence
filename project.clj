@@ -6,6 +6,7 @@
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [com.rpl/defexception "0.2.5"]
                  [de.dixieflatline/pold "0.1.0-SNAPSHOT"]
+                 [failjure "2.3.0"]
                  [org.clojure/test.check "1.1.1"]
                  [com.github.seancorfield/next.jdbc "1.3.939"]
                  [com.github.seancorfield/honeysql "2.6.1147"]
