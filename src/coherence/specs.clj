@@ -36,16 +36,16 @@
                                         :keywords (s/coll-of keyword?
                                                              :min-count 1)))
 
-(s/def :coherence.specs.patch/association (s/map-of :coherence.specs.patch/key
-                                                    any?
-                                                    :min-count 1))
+(s/def :coherence.specs.patch/assoc (s/map-of :coherence.specs.patch/key
+                                              any?
+                                              :min-count 1))
 
-(s/def :coherence.specs.patch/dissociation (s/coll-of :coherence.specs.patch/key
-                                                      :distinct true
-                                                      :min-count 1))
+(s/def :coherence.specs.patch/dissoc (s/coll-of :coherence.specs.patch/key
+                                                :distinct true
+                                                :min-count 1))
 
-(s/def ::patch (s/keys :req-un [(or :coherence.specs.patch/association
-                                    :coherence.specs.patch/dissociation)]))
+(s/def ::patch (s/keys :req-un [(or :coherence.specs.patch/assoc
+                                    :coherence.specs.patch/dissoc)]))
 
 (s/def :coherence.specs.action/actor ::identity)
 
