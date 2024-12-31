@@ -28,7 +28,7 @@
 (defn- write-events
   [store events]
   (with-open [writer (open-write store)]
-    (run! #(append! writer %) events)
+    (run! (partial append! writer) events)
     (commit! writer)))
 
 (defn test-stream-events_no-replay

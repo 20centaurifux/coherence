@@ -97,7 +97,7 @@
                          :effect ::new-effect))
 
 (defn rebase!
-  "Appends `history` to `store` on top of `base`inside a transaction. Sequence
+  "Appends `history` to `store` on top of `base` inside a transaction. Sequence
    numbers in `resolved` are treated as resolved conflicts. Returns a map
    containing a result code and details depending on context.
 
@@ -110,7 +110,7 @@
    - conflict
        - `:result`: `:conflict`
        - `:events`: vector of accepted events
-       - `:conflict`: map containing affected event from history (`:ours`)
+       - `:conflict`: map containing affected events from history (`:ours`)
          and store (`:theirs`)
    - write conflict in underlying store implementation
       - `:result`: `:write-conflict`

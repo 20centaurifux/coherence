@@ -7,7 +7,7 @@
 (s/def ::seq-no (s/and integer? pos?))
 
 (s/def ::timestamp
-  (s/with-gen #(instance? java.time.Instant %)
+  (s/with-gen (partial instance? java.time.Instant)
     (fn []
       (let [now (.getEpochSecond (java.time.Instant/now))]
         (gen/fmap #(java.time.Instant/ofEpochSecond %)

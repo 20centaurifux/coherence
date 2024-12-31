@@ -215,7 +215,7 @@
 
   (append! [_ ev]
     (try
-      (run! #(execute-one! conn %)
+      (run! (partial execute-one! conn)
             (insert-event tables ev))
       (catch Exception e (except e))))
 
@@ -336,7 +336,7 @@
   Schema
   (init-schema [_]
     (with-open [conn (jdbc/get-connection ds {:auto-commit false})]
-      (run! #(jdbc/execute-one! conn %) (ddl/create-tables opts))
+      (run! (partial jdbc/execute-one! conn) (ddl/create-tables opts))
       (.commit conn)))
 
   c/Store

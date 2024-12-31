@@ -199,7 +199,6 @@
         (is (empty? events))
         (is (= (assoc action :seq-no 2) ours))
         (is (= theirs conflict)))
-
       ;; mark conflict as resolved & append
       (let [{:keys [:result :events]} (rebase! store 2 [action] :resolved [1])]
         (assert/called-n-times? (:next-seq-no (p/spies writer)) 2)

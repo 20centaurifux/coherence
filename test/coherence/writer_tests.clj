@@ -149,7 +149,7 @@
                             :aggregate [:thing 1]
                             :patch {:a 2}}}]]
       (with-open [writer (open-write store)]
-        (run! #(append! writer %) events)
+        (run! (partial append! writer) events)
         (testing "find conflict"
           (let [conflict (next-conflict writer 1 [:thing 1] #{})]
             (is (= (events 0) conflict))))
@@ -184,7 +184,7 @@
                             :aggregate [:thing 1]
                             :patch {:a 2}}}]]
       (with-open [writer (open-write store)]
-        (run! #(append! writer %) events)
+        (run! (partial append! writer) events)
         (testing "find conflict"
           (let [conflict (next-conflict writer 2 [:thing 1] #{})]
             (is (= (events 1) conflict))))
@@ -227,7 +227,7 @@
                             :aggregate [:thing 2]
                             :patch {:a 3}}}]]
       (with-open [writer (open-write store)]
-        (run! #(append! writer %) events)
+        (run! (partial append! writer) events)
         (testing "skip action"
           (let [conflict (next-conflict writer 1 [:thing 2] #{})]
             (is (= (events 1) conflict))))
