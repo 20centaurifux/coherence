@@ -21,28 +21,152 @@ Events have a *sequence number* to preserve order. To trace individual state cha
 
 TODO: Installation
 
-## State transformation
+## Walkthrough
+
+**coherence** comes with a JDBC implementation for storing and retrieving events. A JDBC driver for a database compatible with [HoneySQL](https://github.com/seancorfield/honeysql) is required.
+
+The example below initializes a SQLite database.
+
+```
+(use 'coherence.core)
+(use 'coherence.jdbc.core)
+
+(def honeysql-opts {:dialect :ansi
+                    :quoted-snake true})
+
+(def table-names {:event :events
+                  :action :actions
+                  :effect :effects
+                  :trigger :triggers})
+
+(def store-opts {:sql honeysql-opts
+                 :tables table-names})
+
+(def ds {:dbtype "sqlite" :dbname "test.db"})
+
+(def store (->Store ds store-opts))
+
+(init-schema store)
+```
 
 ### Actions
 
 An *actor* has a *reason* for applying a *patch* that changes an *aggregate*. Patches may associate values with specified keys and dissociate keys from an aggregate.
 
-TODO: example
+```
+;; Alice creates two new books
+(rebase! store
+         1
+         [{:timestamp (java.time.Instant/now)
+           :source :bookstore
+           :action {:reason :create
+                    :actor [:user "alice"]
+                    :aggregate [:book "Neuromancer"]
+                    :patch {:assoc {:author "William Gibson"
+                                    :genre "SciFi"}}}}
+           {:timestamp (java.time.Instant/now)
+            :source :bookstore
+            :action {:reason :create
+                     :actor [:user "alice"]
+                     :aggregate [:book "Count Zero"]
+                     :patch {:assoc {:author "William Gibson"
+                                     :genre "Cyberpunk"}}}}])
 
-An *action* cannot be appended to the event store if the affected aggregate was changed in the meantime. The conflicting event is returned and the caller has to resolve the conflict. When appending an *action* to the event store, a list of sequence numbers is passed that should be treated as resolved.
+; => {:result :ok :events [{:seq-no 1 ...} {:seq-no 2 ...}]}
+```
 
-TODO: example
+An *action* cannot be appended to the event store if the affected aggregate was changed in the meantime. The conflict is returned and the caller has to resolve it. When appending an *action* to the event store, a list of sequence numbers is passed that should be treated as resolved.
 
-### Effects
+```
+;; Bob creates two books
+(rebase! store
+         1
+         [{:timestamp (java.time.Instant/now)
+           :source :bookstore
+           :action {:reason :create
+                    :actor [:user "bob"]
+                    :aggregate [:book "Mona Lisa Overdrive"]
+                    :patch {:assoc {:author "William Gibson"
+                                    :genre "Cyberpunk"}}}}
+           {:timestamp (java.time.Instant/now)
+            :source :bookstore
+            :action {:reason :create
+                     :actor [:user "bob"]
+                     :aggregate [:book "Neuromancer"]
+                     :patch {:assoc {:author "William Gibson"
+                                     :genre "Cyberpunk"}}}}])
+
+; => {:result :conflict
+;     :events [{:seq-no 3 ...}]
+;     :conflict {:ours {:seq-no 4 ...}
+;                :theirs {:seq-no 1 ...}}}
+
+;; Bob resolves the conflict
+(rebase! store
+         1
+         [{:timestamp (java.time.Instant/now)
+           :source :bookstore
+           :action {:reason :create
+                    :actor [:user "bob"]
+                    :aggregate [:book "Mona Lisa Overdrive"]
+                    :patch {:assoc {:author "William Gibson"
+                                    :genre "Cyberpunk"}}}}
+          {:timestamp (java.time.Instant/now)
+           :source :bookstore
+           :action {:reason :update
+                    :actor [:user "bob"]
+                    :aggregate [:book "Neuromancer"]
+                    :patch {:assoc {:genre "Cyberpunk"}}}}]
+         :resolved [1])
+
+; => {:result :ok :events [{:seq-no 3 ...} {:seq-no 4 ...}]}
+```
+
+### Effects & projection
 
 Stored information may depend on external resources. Sometimes data must be made unreadable after a certain point in time due to data protection regulations, for example. In such a case the payload can be stored in encrypted form. The key required for decryption has an expiration date.
 
 In **coherence** *actions* can be linked to any number of *triggers*, which in turn are triggered by an *effect* for a *reason*. If, for instance, a decryption key expires an *effect* event is appended to the event store. If an *effect* is read in during projection, the *actions* of all affected aggregates are replayed.
 
-TODO: example
+```
+;; Alice stores two receipts with encrypted credit card numbers
+(rebase! store
+         2
+         [{:timestamp (java.time.Instant/now)
+           :source :bookstore
+           :action {:reason :payment
+                    :actor [:user "alice"]
+                    :aggregate [:receipt 1]
+                    :patch {:assoc {:no "avd2dlg3g93fm1osu"
+                                    :total 100}}}
+           :triggers [[:encryption-key 1]]}
+          {:timestamp (java.time.Instant/now)
+           :source :bookstore
+           :action {:reason :payment
+                    :actor [:user "alice"]
+                    :aggregate [:receipt 2]
+                    :patch {:assoc {:no "kepf62djsdk8fw21"
+                                    :total 200}}}
+           :triggers [[:encryption-key 2]]}])
 
-### Projection
+; => {:result :ok :events [{:seq-no 5 ...} {:seq-no 6 ...}]}
 
-Projectors receive events from an event stream to generate read models. The reading process can start at any offset. If an *effect* detected all *actions* of the affected aggregates up to the current sequence number are replayed.
+;; the encryption key of the first receipt expires
+(rebase! store
+         6
+         [{:timestamp (java.time.Instant/now)
+           :source :keystore
+           :effect {:reason :key-expired
+                    :trigger [:encryption-key 1]}}])
 
-TODO: example
+; => {:result :ok :events [{:seq-no 7 ...}]}
+
+;; receipt 1 is replayed
+(def xf (map (fn [{seq-no :seq-no {:keys [:aggregate]} :action}]
+               {:seq-no seq-no :aggregate aggregate})))
+
+(coherence.core/transduce xf conj [] store :offset 6)
+
+; => [{:seq-no 5, :aggregate [:receipt 1]}
+;     {:seq-no 6, :aggregate [:receipt 2]}]
+```
