@@ -134,7 +134,8 @@
 ;;; read events
 
 (defprotocol Reader
-  (stream-events [reader xform f init offset]))
+  (stream-events [reader xform f init offset])
+  (max-seq-no [reader]))
 
 (defn transduce
   "Reduces an event stream with a transformation (`xform` `f`). Skips `offset`
@@ -146,3 +147,10 @@
   (when (>= offset 0)
     (with-open [r (open-read store)]
       (stream-events r xform f init offset))))
+
+(defn current-seq-no
+  "Returns latest sequence number."
+  [store]
+  {:pre [(store? store)]}
+  (with-open [r (open-read store)]
+    (max-seq-no r)))

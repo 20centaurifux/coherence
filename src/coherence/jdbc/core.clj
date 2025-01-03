@@ -115,7 +115,14 @@
               :trigger [(edn/read-string ?trigger-kind)
                         (edn/read-string ?trigger-id)]}}))
 
-;;; query conflicts
+;;; queries
+
+(defn- query-max-seq-no
+  [conn {:keys [event]}]
+  (let [q {:select [[[:coalesce [:max :seq_no] [:inline 0]] :seq_no]]
+           :from event}]
+    (-> (execute-one! conn q)
+        :seq-no)))
 
 (defn- query-next-conflicting-action
   [conn {:keys [action event trigger]} offset [aggregate-kind aggregate-id] resolved]
@@ -179,13 +186,6 @@
 (defmethod except java.lang.Exception
   [e]
   (throw e))
-
-(defn- query-max-seq-no
-  [conn {:keys [event]}]
-  (let [q {:select [[[:coalesce [:max :seq_no] [:inline 0]] :seq_no]]
-           :from event}]
-    (-> (execute-one! conn q)
-        :seq-no)))
 
 (deftype Writer [conn tables]
   c/Closed
@@ -296,7 +296,10 @@
       (transduce (comp (merge-action-rows) xform)
                  f
                  init
-                 (plan! conn q)))))
+                 (plan! conn q))))
+
+  (max-seq-no [_]
+    (query-max-seq-no conn tables)))
 
 ;;; Store
 

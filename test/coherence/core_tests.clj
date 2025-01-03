@@ -313,12 +313,26 @@
     (let [xf (comp (filter #(>= (:seq-no %) offset))
                    xform)]
       (clojure.core/transduce xf f init events)))
+   (max-seq-no
+    [_]
+    (-> events last :seq-no))
    Closable
    (close [_])))
 
 (deftype ReaderStore [r]
   Store
   (open-read [_] r))
+
+(deftest test-current-seq-no
+  (testing "current-seq-no"
+    (let [events (for [idx (range 1 5)] (-> (gen/generate (action-gen))
+                                            (assoc :seq-no idx)))
+          reader (reader events)
+          store (->ReaderStore reader)
+          spy (p/spies reader)
+          seq-no (current-seq-no store)]
+      (assert/called-once? (:max-seq-no spy))
+      (is (= 4 seq-no)))))
 
 (deftest test-transduce
   (let [events (for [idx (range 1 5)] (-> (gen/generate (action-gen))
