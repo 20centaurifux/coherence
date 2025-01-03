@@ -19,7 +19,7 @@ Events have a *sequence number* to preserve order. To trace individual state cha
 
 ## Installation
 
-TODO: Installation
+[![Clojars Project](https://img.shields.io/clojars/v/de.dixieflatline/coherence.svg?include_prereleases)](https://clojars.org/de.dixieflatline/coherence)
 
 ## Walkthrough
 
