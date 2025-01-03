@@ -302,6 +302,26 @@
         (is (#{:write-conflict} result))
         (is (instance? WriteConflictException ex))))))
 
+(deftest test-rebase!-dry
+  (testing "rollback instead of commit"
+    (let [action (gen/generate (action-gen))
+          writer (writer
+                  (next-seq-no [_] 1)
+                  (next-conflict [_ _ [_ _] _])
+                  (append! [_ _])
+                  (rollback! [_]))
+          spy (p/spies writer)
+          store (->WriterStore writer)]
+      (let [{result :result
+             [ev] :events} (rebase! store 1 [action] :dry true)]
+        (assert/called-once? (:next-seq-no (p/spies writer)))
+        (assert/called-once-with? (:next-conflict spy) writer 1 (get-in action [:action :aggregate]) [])
+        (assert/called-once-with? (:append! spy) writer (assoc action :seq-no 1))
+        (assert/called-once? (:rollback! spy))
+        (assert/called-once? (:close spy))
+        (is (#{:ok} result))
+        (is (= (assoc action :seq-no 1) ev))))))
+
 ;;; read events
 
 (defn- reader

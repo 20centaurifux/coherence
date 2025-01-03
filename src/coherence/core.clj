@@ -98,8 +98,9 @@
 
 (defn rebase!
   "Appends `history` to `store` on top of `base` inside a transaction. Sequence
-   numbers in `resolved` are treated as resolved conflicts. Returns a map
-   containing a result code and details depending on context.
+   numbers in `resolved` are treated as resolved conflicts. If `dry` is true
+   perform a trial run with no changes made. Returns a map containing a result
+   code and details depending on context.
 
    - success
        - `:result`: `:ok`
@@ -115,7 +116,7 @@
    - write conflict in underlying store implementation
       - `:result`: `:write-conflict`
       - `:exception`: catched exception"
-  [store base history & {:keys [resolved] :or {resolved []}}]
+  [store base history & {:keys [resolved dry] :or {resolved [] dry false}}]
   {:pre [(store? store)
          (s/valid? :coherence.specs/seq-no base)
          (s/valid? (s/coll-of ::new-event :min-count 1) history)
@@ -125,7 +126,7 @@
                    (history->events history)
                    (check-conflicts w base resolved)
                    (write-events! w))]
-      (if (f/ok? result)
+      (if (and (f/ok? result) (not dry))
         (commit! w)
         (rollback! w))
       (cond-> result
