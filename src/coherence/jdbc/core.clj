@@ -124,35 +124,32 @@
     (-> (execute-one! conn q)
         :seq-no)))
 
-(defn- query-next-conflicting-action
-  [conn {:keys [action event trigger]} offset [aggregate-kind aggregate-id] resolved]
-  (let [q {:select [:ev/timestamp
-                    :ev/source
-                    [:a/seq-no :seq-no]
-                    :a/reason
-                    :a/actor-kind
-                    :a/actor-id
-                    :a/aggregate-kind
-                    :a/aggregate-id
-                    :a/patch
-                    :t/trigger-kind
-                    :t/trigger-id]
-           :from [[action :a]]
-           :join [[event :ev] [:= :a/seq-no :ev/seq-no]]
-           :left-join [[trigger :t] [:= :a/seq-no :t/seq-no]]
-           :where (cond-> [:and
-                           [:>= :a/seq-no offset]
-                           [:= :a/aggregate-kind (pr-str aggregate-kind)]
-                           [:= :a/aggregate-id (pr-str aggregate-id)]]
-                    (seq resolved) (conj [[:not [:in :a/seq-no resolved]]]))
-           :order-by [:a/seq-no]}]
-    (->> (plan! conn q)
-         (into [] (comp (merge-action-rows) (take 1)))
-         first)))
+(defn- select-next-conflicting-actions
+  [{:keys [action event trigger]} offset [aggregate-kind aggregate-id] resolved]
+  {:select [:ev/timestamp
+            :ev/source
+            [:a/seq-no :seq-no]
+            :a/reason
+            :a/actor-kind
+            :a/actor-id
+            :a/aggregate-kind
+            :a/aggregate-id
+            :a/patch
+            :t/trigger-kind
+            :t/trigger-id]
+   :from [[action :a]]
+   :join [[event :ev] [:= :a/seq-no :ev/seq-no]]
+   :left-join [[trigger :t] [:= :a/seq-no :t/seq-no]]
+   :where (cond-> [:and
+                   [:>= :a/seq-no offset]
+                   [:= :a/aggregate-kind (pr-str aggregate-kind)]
+                   [:= :a/aggregate-id (pr-str aggregate-id)]]
+            (seq resolved) (conj [[:not [:in :a/seq-no resolved]]]))
+   :order-by [:a/seq-no]})
 
-(defn- query-next-conflicting-effect
-  [conn {:keys [effect event action trigger]} offset [aggregate-kind aggregate-id] resolved]
-  (let [q {:select [:ev/timestamp
+(defn- select-next-conflicting-effects
+  [{:keys [effect event action trigger]} offset [aggregate-kind aggregate-id] resolved & {:keys [limit]}]
+  (cond-> {:select [:ev/timestamp
                     :ev/source
                     [:eff/seq-no :seq-no]
                     :eff/reason
@@ -171,13 +168,30 @@
                                              [:= :a/aggregate-kind (pr-str aggregate-kind)]
                                              [:= :a/aggregate-id (pr-str aggregate-id)]]}]]
                     (seq resolved) (conj [[:not [:in :eff/seq-no resolved]]]))
-           :order-by [:eff/seq-no]
-           :limit 1}]
-    (some-> (execute-one! conn q)
-            row->effect)))
+           :order-by [:eff/seq-no]}
+    limit (assoc :limit limit)))
 
-(def ^:private query-conflicts (juxt query-next-conflicting-action
-                                     query-next-conflicting-effect))
+(defn- query-next-conflicting-actions
+  [conn tables offset aggregate resolved & {:keys [limit]}]
+  (let [xf (cond-> (merge-action-rows)
+             limit (comp (take limit)))]
+    (->> (select-next-conflicting-actions tables offset aggregate resolved)
+         (plan! conn)
+         (into [] xf))))
+
+(defn- query-next-conflicting-effects
+  [conn tables offset aggregate resolved & {:keys [limit]}]
+  (->> (select-next-conflicting-effects tables offset aggregate resolved :limit limit)
+       (plan! conn)
+       (into [] (map row->effect))))
+
+(defn- query-next-conflicts
+  [conn tables offset aggregate & {:keys [resolved limit] :or {resolved []}}]
+  (let [f (juxt query-next-conflicting-actions
+                query-next-conflicting-effects)]
+    (->> (f conn tables offset aggregate resolved :limit limit)
+         flatten
+         (sort-by :seq-no))))
 
 ;;; Writer
 
@@ -208,10 +222,8 @@
       (catch Exception e (except e))))
 
   (next-seq-no [_]
-    (try
-      (-> (query-max-seq-no conn tables)
-          inc)
-      (catch Exception e (except e))))
+    (-> (query-max-seq-no conn tables)
+        inc))
 
   (append! [_ ev]
     (try
@@ -220,11 +232,8 @@
       (catch Exception e (except e))))
 
   (next-conflict [_ offset aggregate resolved]
-    (try
-      (->> (query-conflicts conn tables offset aggregate resolved)
-           (sort-by #(get % :seq-no Long/MAX_VALUE))
-           first)
-      (catch Exception e (except e)))))
+    (-> (query-next-conflicts conn tables offset aggregate :resolved resolved :limit 1)
+        first)))
 
 ;;; Reader
 
@@ -299,7 +308,10 @@
                  (plan! conn q))))
 
   (max-seq-no [_]
-    (query-max-seq-no conn tables)))
+    (query-max-seq-no conn tables))
+
+  (query-conflicts [_ offset aggregate]
+    (query-next-conflicts conn tables offset aggregate)))
 
 ;;; Store
 

@@ -80,6 +80,12 @@
 (deftest test-reader_close
   (rt/test-close store))
 
+(deftest test-reader_max-seq-no
+  (rt/test-max-seq-no store))
+
+(deftest test-reader_query-conflicts
+  (rt/test-query-conflicts store))
+
 (deftest test-reader_stream-events_no-replay
   (rt/test-stream-events_no-replay store))
 

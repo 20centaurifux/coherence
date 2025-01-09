@@ -31,6 +31,63 @@
     (run! (partial append! writer) events)
     (commit! writer)))
 
+(defn test-max-seq-no
+  [store]
+  (testing "empty store"
+    (with-open [reader (open-read store)]
+      (is (= 0 (max-seq-no reader)))))
+
+  (testing "filled store"
+    (let [actions [{:seq-no 100
+                    :source ::test
+                    :timestamp (utils/now)
+                    :action {:reason ::create
+                             :actor [:test 1]
+                             :aggregate [:thing 1]
+                             :patch {:a 1}}}]]
+      (write-events store actions)
+      (with-open [reader (open-read store)]
+        (is (= 100 (max-seq-no reader)))))))
+
+(defn test-query-conflicts
+  [store]
+  (let [actions [{:seq-no 1
+                  :source ::test
+                  :timestamp (utils/now)
+                  :action {:reason ::create
+                           :actor [:test 1]
+                           :aggregate [:thing 1]
+                           :patch {:a 1}}}
+                 {:seq-no 2
+                  :source ::test
+                  :timestamp (utils/now)
+                  :action {:reason ::create
+                           :actor [:test 1]
+                           :aggregate [:thing 2]
+                           :patch {:a 1}}}
+                 {:seq-no 3
+                  :source ::test
+                  :timestamp (utils/now)
+                  :action {:reason ::update
+                           :actor [:test 1]
+                           :aggregate [:thing 1]
+                           :patch {:a 2}}}]]
+    (write-events store actions)
+    (testing "no conflicts"
+      (with-open [reader (open-read store)]
+        (let [result (query-conflicts reader 1 [:thing 3])]
+          (is (empty? result)))))
+
+    (testing "find single conflict"
+      (with-open [reader (open-read store)]
+        (let [result (query-conflicts reader 2 [:thing 1])]
+          (is (= [(actions 2)] result)))))
+
+    (testing "find many conflicts"
+      (with-open [reader (open-read store)]
+        (let [result (query-conflicts reader 1 [:thing 1])]
+          (is (= [(actions 0) (actions 2)] result)))))))
+
 (defn test-stream-events_no-replay
   [store]
   (let [actions [{:seq-no 1

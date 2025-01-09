@@ -336,6 +336,11 @@
    (max-seq-no
     [_]
     (-> events last :seq-no))
+   (query-conflicts
+    [_ offset aggregate]
+    (filter #(and (>= (:seq-no %) offset)
+                  (= (:aggregate %) aggregate))
+            events))
    Closable
    (close [_])))
 
@@ -343,20 +348,50 @@
   Store
   (open-read [_] r))
 
-(deftest test-current-seq-no
-  (testing "current-seq-no"
-    (let [events (for [idx (range 1 5)] (-> (gen/generate (action-gen))
-                                            (assoc :seq-no idx)))
+(defn- ->action
+  ([seq-no aggregate]
+   (-> (gen/generate (action-gen))
+       (assoc :seq-no seq-no)
+       (assoc :aggregate aggregate)))
+  ([seq-no]
+   (->action seq-no (gen/generate (s/gen :coherence.specs/identity)))))
+
+(deftest test-seq-no
+  (testing "seq-no"
+    (let [events (for [idx (range 1 5)] (->action idx))
           reader (reader events)
           store (->ReaderStore reader)
           spy (p/spies reader)
-          seq-no (current-seq-no store)]
+          seq-no (seq-no store)]
       (assert/called-once? (:max-seq-no spy))
       (is (= 4 seq-no)))))
 
+(deftest test-conflicts
+  (let [[agg1 agg2 agg3] (gen/sample (s/gen :coherence.specs/identity) 3)
+        events [(->action 1 agg1)
+                (->action 2 agg2)
+                (->action 3 agg1)
+                (->action 4 agg3)
+                (->action 5 agg1)
+                (->action 6 agg2)]]
+    (testing "find conflicts"
+      (let [reader (reader events)
+            store (->ReaderStore reader)
+            spy (p/spies reader)]
+        (let [result (conflicts store 2 agg1)]
+          (assert/called-once-with? (:query-conflicts spy) reader 2 agg1)
+          (is (= [(events 2) (events 4)] result)))))
+
+    (testing "no conflicts"
+      (let [reader (reader events)
+            store (->ReaderStore reader)
+            spy (p/spies reader)]
+        (let [result (conflicts store 5 agg3)]
+          (assert/called-once-with? (:query-conflicts spy) reader 5 agg3)
+          (is (empty? result)))))))
+
 (deftest test-transduce
-  (let [events (for [idx (range 1 5)] (-> (gen/generate (action-gen))
-                                          (assoc :seq-no idx)))]
+  (let [events (for [idx (range 1 5)] (->action idx))]
     (testing "without offset"
       (let [reader (reader events)
             store (->ReaderStore reader)

@@ -136,7 +136,24 @@
 
 (defprotocol Reader
   (stream-events [reader xform f init offset])
-  (max-seq-no [reader]))
+  (max-seq-no [reader])
+  (query-conflicts [writer offset [aggregate-kind aggregate-id]]))
+
+(defn seq-no
+  "Returns current sequence number."
+  [store]
+  {:pre [(store? store)]}
+  (with-open [r (open-read store)]
+    (max-seq-no r)))
+
+(defn conflicts
+  "Returns all conflicts from `offset` onwards."
+  [store offset aggregate]
+  {:pre [(store? store)
+         (s/valid? :coherence.specs/seq-no offset)
+         (s/valid? :coherence.specs/identity aggregate)]}
+  (with-open [r (open-read store)]
+    (query-conflicts r offset aggregate)))
 
 (defn transduce
   "Reduces an event stream with a transformation (`xform` `f`). Skips `offset`
@@ -148,10 +165,3 @@
   (when (>= offset 0)
     (with-open [r (open-read store)]
       (stream-events r xform f init offset))))
-
-(defn current-seq-no
-  "Returns latest sequence number."
-  [store]
-  {:pre [(store? store)]}
-  (with-open [r (open-read store)]
-    (max-seq-no r)))
