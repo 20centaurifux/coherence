@@ -44,7 +44,7 @@
                     :action {:reason ::create
                              :actor [:test 1]
                              :aggregate [:thing 1]
-                             :patch {:a 1}}}]]
+                             :patch {:assoc {:a  1}}}}]]
       (write-events store actions)
       (with-open [reader (open-read store)]
         (is (= 100 (max-seq-no reader)))))))
@@ -57,21 +57,21 @@
                   :action {:reason ::create
                            :actor [:test 1]
                            :aggregate [:thing 1]
-                           :patch {:a 1}}}
+                           :patch {:assoc {:a 1}}}}
                  {:seq-no 2
                   :source ::test
                   :timestamp (utils/now)
                   :action {:reason ::create
                            :actor [:test 1]
                            :aggregate [:thing 2]
-                           :patch {:a 1}}}
+                           :patch {:assoc {:a 1}}}}
                  {:seq-no 3
                   :source ::test
                   :timestamp (utils/now)
                   :action {:reason ::update
                            :actor [:test 1]
                            :aggregate [:thing 1]
-                           :patch {:a 2}}}]]
+                           :patch {:assoc {:a 2}}}}]]
     (write-events store actions)
     (testing "no conflicts"
       (with-open [reader (open-read store)]
@@ -96,7 +96,7 @@
                   :action {:reason ::create
                            :actor [:test 1]
                            :aggregate [:thing 1]
-                           :patch {:a 1}}
+                           :patch {:assoc {:a 1}}}
                   :triggers #{[:trg 1] [:trg 2]}}
                  {:seq-no 2
                   :source ::test
@@ -104,7 +104,7 @@
                   :action {:reason ::update
                            :actor [:test 1]
                            :aggregate [:thing 1]
-                           :patch {:a 2}}}]]
+                           :patch {:assoc {:a 2}}}}]]
     (write-events store actions)
     (testing "all events"
       (doseq [offset [0 1]]
@@ -125,7 +125,7 @@
                  :action {:reason ::create
                           :actor [:test 1]
                           :aggregate [:thing 1]
-                          :patch {:a 1}}
+                          :patch {:assoc {:a 1}}}
                  :triggers #{[:trg 1]}}
                 {:seq-no 2
                  :source ::test
@@ -133,7 +133,7 @@
                  :action {:reason ::create
                           :actor [:test 1]
                           :aggregate [:thing 2]
-                          :patch {:a 1}}
+                          :patch {:assoc {:a 1}}}
                  :triggers #{[:trg 2]}}
                 {:seq-no 3
                  :source ::test
@@ -141,7 +141,7 @@
                  :action {:reason ::update
                           :actor [:test 1]
                           :aggregate [:thing 1]
-                          :patch {:a 2}}
+                          :patch {:assoc {:a 2}}}
                  :triggers #{[:trg 1]}}
                 {:seq-no 4
                  :source ::test
@@ -154,7 +154,7 @@
                  :action {:reason ::update
                           :actor [:test 1]
                           :aggregate [:thing 2]
-                          :patch {:a 2}}
+                          :patch {:assoc {:a 2}}}
                  :triggers #{[:trg 2]}}
                 {:seq-no 6
                  :source ::test
@@ -162,7 +162,7 @@
                  :action {:reason ::update
                           :actor [:test 1]
                           :aggregate [:thing 1]
-                          :patch {:a 3}}
+                          :patch {:assoc {:a 3}}}
                  :triggers #{[:trg 1]}}]]
     (write-events store events)
     (testing "all events"
