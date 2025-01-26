@@ -1,10 +1,9 @@
 (ns coherence.core
   (:refer-clojure :exclude [transduce])
-  (:require
-   [clojure.spec.alpha :as s]
-   [coherence.specs]
-   [com.rpl.defexception :refer [defexception]]
-   [failjure.core :as f]))
+  (:require [clojure.spec.alpha :as s]
+            [coherence.specs]
+            [com.rpl.defexception :refer [defexception]]
+            [failjure.core :as f]))
 
 (defn action?
   "Tests if `x` is an action."
