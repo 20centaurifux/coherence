@@ -1,6 +1,8 @@
 (ns coherence.projection-tests
   (:require [clojure.test :refer [deftest testing is]]
-            [coherence.projection :refer [apply-patch project]]
+            [coherence.projection :refer [apply-patch
+                                          merge-projections
+                                          project]]
             [coherence.test-utils :as utils]
             [spy.assert :as assert]
             [spy.core :as spy]))
@@ -165,3 +167,28 @@
                       :aggregates [{:id [:thing 1], :aggregate {:a 3}}]}
                      (result 1))))
           (assert/not-called? loadf))))))
+
+(deftest test-merge-projections
+  (testing "one projection"
+    (let [projections [{:seq-no 1
+                        :aggregates [{:id [:thing 1] :aggregate {:a 1}}
+                                     {:id [:thing 2] :aggregate {:a 2}}]}]
+          {:keys [seq-no aggregates]} (merge-projections projections)]
+      (is (= 1 seq-no))
+      (is (= [{:id [:thing 1] :aggregate {:a 1}}
+              {:id [:thing 2] :aggregate {:a 2}}]
+             (sort-by :id aggregates)))))
+
+  (testing "multiple projections"
+    (let [projections [{:seq-no 1
+                        :aggregates [{:id [:thing 1] :aggregate {:a 1}}
+                                     {:id [:thing 2] :aggregate {:a 1}}]}
+                       {:seq-no 2
+                        :aggregates [{:id [:thing 2] :aggregate {:a 2}}
+                                     {:id [:thing 3] :aggregate {:a 3}}]}]
+          {:keys [seq-no aggregates]} (merge-projections projections)]
+      (is (= 2 seq-no))
+      (is (= [{:id [:thing 1] :aggregate {:a 1}}
+              {:id [:thing 2] :aggregate {:a 2}}
+              {:id [:thing 3] :aggregate {:a 3}}]
+             (sort-by :id aggregates))))))

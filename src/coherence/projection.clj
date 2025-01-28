@@ -50,10 +50,35 @@
         m))
 
 (defn project
-  "Applies patches from an event stream to affected aggregates from `start`
-   onwards. The initial state of an aggregate is either created with `loadf` or
-   taken from the very first replayed event. Returns a transducer if `coll` is
-   not provided."
+  "Applies patches from an event stream to all aggregates from `start` onwards.
+   Each returned item provides the state of all affected aggregates at a point
+   in time. The initial state is either created with `loadf` or taken from the
+   very first replayed event. Returns a transducer if `coll` is not provided.
+   
+   **Example**
+   ```clojure
+   (let [loadf (constantly {:a 1}) ; initial state of aggregate [:thing 1]
+         event-stream  [{:seq-no 3
+                         :source ::test
+                         :timestamp (java.time.Instant/now)
+                         :action {:reason ::assoc-b
+                                  :actor [:test 1]
+                                  :aggregate [:thing 1]
+                                  :patch {:assoc {:b 2}}}}
+                        {:seq-no 4
+                         :source ::test
+                         :timestamp (java.time.Instant/now)
+                         :action {:reason ::assoc-c
+                                  :actor [:test 1]
+                                  :aggregate [:thing 1]
+                                  :patch {:assoc {:c 3}}}}]]
+     (project 3 loadf event-stream))
+   
+     ; ({:seq-no 3
+     ;   :aggregates [{:id [:thing 1] :aggregate {:a 1 :b 2}}]}
+     ;  {:seq-no 4
+     ;   :aggregates [{:id [:thing 1] :aggregate {:a 1 :b 2 :c 3}}]})
+   ```"
   ([start loadf]
    (fn [rf]
      (let [m (volatile! {})
@@ -81,3 +106,37 @@
                 (rf result value)))))))))
   ([start loadf coll]
    (sequence (project start loadf) coll)))
+
+;;; merging
+
+(defn- merge-aggregates
+  [src dst]
+  (let [pred (complement (set (map :id dst)))]
+    (into dst (filter #(pred (:id %)) src))))
+
+(defn merge-projections
+  "Combines `projections` into a single projection and merges all aggregates
+   contained within.
+   
+   **Example**
+   ```clojure
+   (let [projections [{:seq-no 1
+                       :aggregates [{:id [:thing 1] :aggregate {:a 1}}
+                                    {:id [:thing 2] :aggregate {:a 1}}]}
+                      {:seq-no 2
+                       :aggregates [{:id [:thing 2] :aggregate {:a 2}}
+                                    {:id [:thing 3] :aggregate {:a 3}}]}]]
+     (merge-projections projections))
+   ; {:seq-no 2
+   ;  :aggregates [{:id [:thing 2] :aggregate {:a 2}}
+   ;               {:id [:thing 3] :aggregate {:a 3}}
+   ;               {:id [:thing 1], :aggregate {:a 1}}]}
+   ```"
+  [projections]
+  (reduce
+   (fn [result {:keys [seq-no aggregates]}]
+     (-> result
+         (assoc :seq-no seq-no)
+         (update-in [:aggregates] merge-aggregates aggregates)))
+   {}
+   projections))
