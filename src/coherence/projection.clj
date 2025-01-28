@@ -45,7 +45,7 @@
         (mapcat (fn [[kind children]]
                   (map (fn [[id aggr]]
                          {:id [kind id]
-                          :aggregate aggr})
+                          :state aggr})
                        children)))
         m))
 
@@ -73,11 +73,10 @@
                                   :aggregate [:thing 1]
                                   :patch {:assoc {:c 3}}}}]]
      (project 3 loadf event-stream))
-   
-     ; ({:seq-no 3
-     ;   :aggregates [{:id [:thing 1] :aggregate {:a 1 :b 2}}]}
-     ;  {:seq-no 4
-     ;   :aggregates [{:id [:thing 1] :aggregate {:a 1 :b 2 :c 3}}]})
+     ; => ({:seq-no 3
+     ;      :aggregates [{:id [:thing 1] :state {:a 1 :b 2}}]}
+     ;     {:seq-no 4
+     ;      :aggregates [{:id [:thing 1] :state {:a 1 :b 2 :c 3}}]})
    ```"
   ([start loadf]
    (fn [rf]
@@ -99,7 +98,7 @@
               (let [value (if @replayed
                             {:seq-no seq-no
                              :aggregates [{:id [kind id]
-                                           :aggregate patched}]}
+                                           :state patched}]}
                             {:seq-no seq-no
                              :aggregates (aggr-map->vec @m)})]
                 (vreset! replayed true)
@@ -121,16 +120,16 @@
    **Example**
    ```clojure
    (let [projections [{:seq-no 1
-                       :aggregates [{:id [:thing 1] :aggregate {:a 1}}
-                                    {:id [:thing 2] :aggregate {:a 1}}]}
+                       :aggregates [{:id [:thing 1] :state {:a 1}}
+                                    {:id [:thing 2] :state {:a 1}}]}
                       {:seq-no 2
-                       :aggregates [{:id [:thing 2] :aggregate {:a 2}}
-                                    {:id [:thing 3] :aggregate {:a 3}}]}]]
+                       :aggregates [{:id [:thing 2] :state {:a 2}}
+                                    {:id [:thing 3] :state {:a 3}}]}]]
      (merge-projections projections))
-   ; {:seq-no 2
-   ;  :aggregates [{:id [:thing 2] :aggregate {:a 2}}
-   ;               {:id [:thing 3] :aggregate {:a 3}}
-   ;               {:id [:thing 1], :aggregate {:a 1}}]}
+   ; => {:seq-no 2
+   ;     :aggregates [{:id [:thing 2] :state {:a 2}}
+   ;                  {:id [:thing 3] :state {:a 3}}
+   ;                  {:id [:thing 1], :state {:a 1}}]}
    ```"
   [projections]
   (reduce
