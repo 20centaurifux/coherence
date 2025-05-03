@@ -285,10 +285,33 @@
    :where [:>= :a/seq-no offset]})
 
 (defn- select-actions-query
-  [tables offset]
-  {:union [(select-actions-lt-offset-query tables offset)
-           (select-actions-gte-offset-query tables offset)]
-   :order-by [:seq-no]})
+  ([tables offset]
+   {:union [(select-actions-lt-offset-query tables offset)
+            (select-actions-gte-offset-query tables offset)]
+    :order-by [:seq-no]})
+  ([tables offset criteria]
+   {:union [(-> (select-actions-lt-offset-query tables offset)
+                (assoc :where [:and
+                               [:< :a/seq-no offset]
+                               criteria]))
+            (-> (select-actions-gte-offset-query tables offset)
+                (assoc :where [:and
+                               [:>= :a/seq-no offset]
+                               criteria]))]
+    :order-by [:seq-no]}))
+
+(defn- where-clause
+  [f coll]
+  (let [expr (mapv f coll)]
+    (cond->> expr
+      (> (count expr) 1) (into [:or]))))
+
+(defn- transduce-actions
+  [xform f init conn q]
+  (transduce (comp (merge-action-rows) xform)
+             f
+             init
+             (plan! conn q)))
 
 (deftype Reader [conn tables]
   c/Closed
@@ -300,12 +323,25 @@
     (.close conn))
 
   c/Reader
-  (stream-events [_ xform f init offset]
-    (let [q (select-actions-query tables offset)]
-      (transduce (comp (merge-action-rows) xform)
-                 f
-                 init
-                 (plan! conn q))))
+  (read-events [_ xform f init offset]
+    (->> (select-actions-query tables offset)
+         (transduce-actions xform f init conn)))
+
+  (filter-aggregates [_ xform f init offset identities]
+    (->> (where-clause (fn [[kind id]]
+                         [:and
+                          [:= :a/aggregate-kind (pr-str kind)]
+                          [:= :a/aggregate-id (pr-str id)]])
+                       identities)
+         (select-actions-query tables offset)
+         (transduce-actions xform f init conn)))
+
+  (filter-aggregate-kinds [_ xform f init offset kinds]
+    (->> (where-clause (fn [kind]
+                         [:= :a/aggregate-kind (pr-str kind)])
+                       kinds)
+         (select-actions-query tables offset)
+         (transduce-actions xform f init conn)))
 
   (max-seq-no [_]
     (query-max-seq-no conn tables))
@@ -345,7 +381,8 @@
   (->WrappedConnection (jdbc/get-connection ds {:auto-commit false}) sql-opts))
 
 (defprotocol Schema
-  (init-schema [_]))
+  (init-schema [_])
+  (delete-all [_]))
 
 (deftype Store [ds opts]
   Schema
@@ -353,6 +390,10 @@
     (with-open [conn (jdbc/get-connection ds {:auto-commit false})]
       (run! (partial jdbc/execute-one! conn) (ddl/create-tables opts))
       (.commit conn)))
+  (delete-all [_]
+    (let [{sql :sql {:keys [event]} :tables} opts]
+      (with-open [conn (jdbc/get-connection ds)]
+        (jdbc/execute-one! conn (sql/format {:delete-from event} sql)))))
 
   c/Store
   (open-write [_]

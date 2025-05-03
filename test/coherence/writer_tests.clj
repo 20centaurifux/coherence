@@ -1,7 +1,7 @@
 (ns coherence.writer-tests
   (:require [clojure.test :refer [testing is]]
             [clojure.test.check.generators :as gen]
-            [coherence.core :refer :all :exclude [transduce]]
+            [coherence.core :refer :all]
             [coherence.test-utils :as utils])
   (:import (coherence.core WriteConflictException)))
 

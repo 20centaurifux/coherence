@@ -46,7 +46,7 @@ The example below initializes a SQLite database.
 
 (def store (->Store ds store-opts))
 
-(init-schema store)
+(coherence.jdbc.core/init-schema store)
 ```
 
 ### Actions
@@ -165,7 +165,7 @@ In **coherence** *actions* can be linked to any number of *triggers*, which in t
 (def xf (map (fn [{seq-no :seq-no {:keys [:aggregate]} :action}]
                {:seq-no seq-no :aggregate aggregate})))
 
-(coherence.core/transduce xf conj [] store :offset 6)
+(stream-events xf conj [] store :offset 6)
 
 ; => [{:seq-no 5, :aggregate [:receipt 1]}
 ;     {:seq-no 6, :aggregate [:receipt 2]}]

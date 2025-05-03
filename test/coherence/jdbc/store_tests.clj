@@ -17,7 +17,7 @@
                               :effect :effect
                               :trigger :trigger}})
 
-(defn- data-source-fixture
+(defn- sqlite-fixture
   [f]
   (let [ds {:dbtype "sqlite"
             :dbname "file::memory:?cache=shared"}]
@@ -26,7 +26,7 @@
         (init-schema store)
         (f)))))
 
-(use-fixtures :each data-source-fixture)
+(use-fixtures :each sqlite-fixture)
 
 (defmethod except org.sqlite.SQLiteException
   [e]
@@ -86,8 +86,20 @@
 (deftest test-reader_query-conflicts
   (rt/test-query-conflicts store))
 
-(deftest test-reader_stream-events_no-replay
-  (rt/test-stream-events_no-replay store))
+(deftest test-reader_read-events_no-replay
+  (rt/test-read-events_no-replay store))
 
-(deftest test-reader_stream-events_replay
-  (rt/test-stream-events_replay store))
+(deftest test-reader_read-events_replay
+  (rt/test-read-events_replay store))
+
+(deftest test-filter-aggregates_no-replay
+  (rt/test-filter-aggregates_no-replay store))
+
+(deftest test-filter-aggregates_replay
+  (rt/test-filter-aggregates_replay store))
+
+(deftest test-filter-aggregate-kinds_no-replay
+  (rt/test-filter-aggregate-kinds_no-replay store))
+
+(deftest test-filter-aggregate-kinds_replay
+  (rt/test-filter-aggregate-kinds_replay store))

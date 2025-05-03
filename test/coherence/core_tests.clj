@@ -1,5 +1,4 @@
 (ns coherence.core-tests
-  (:refer-clojure :exclude [transduce])
   (:require [clojure.spec.alpha :as s]
             [clojure.test :refer [deftest testing is]]
             [clojure.test.check.generators :as gen]
@@ -9,12 +8,6 @@
   (:import coherence.core.WriteConflictException))
 
 ;;; predicates
-
-(deftest test-store?
-  (testing "Store is Store"
-    (is (store? (reify Store))))
-  (testing "arbitary data is no Store"
-    (is (not (store? (gen/generate gen/any))))))
 
 (deftest test-action?
   (testing "action is action"
@@ -31,6 +24,12 @@
     (is (not (effect? (gen/generate (s/gen :coherence.specs.event/action))))))
   (testing "arbitary data is no effect"
     (is (not (effect? (gen/generate gen/any))))))
+
+(deftest test-store?
+  (testing "Store is Store"
+    (is (store? (reify Store))))
+  (testing "arbitary data is no Store"
+    (is (not (store? (gen/generate gen/any))))))
 
 (defprotocol ^:private Closable
   :extend-via-metadata true
@@ -328,19 +327,43 @@
   [events]
   (p/mock
    Reader
-   (stream-events
+   (read-events
     [_ xform f init offset]
-    (let [xf (comp (filter #(>= (:seq-no %) offset))
+    (let [xf (comp (filter (fn [{:keys [seq-no]}]
+                             (>= seq-no offset)))
                    xform)]
-      (clojure.core/transduce xf f init events)))
+      (transduce xf f init events)))
+
+   (filter-aggregates
+    [_ xform f init offset identities]
+    (let [xf (comp (filter (fn [{seq-no :seq-no {[kind id] :aggregate} :action}]
+                             (and (>= seq-no offset)
+                                  (some (fn [[kind' id']]
+                                          (and (= kind kind')
+                                               (= id id')))
+                                        identities))))
+                   xform)]
+      (transduce xf f init events)))
+
+   (filter-aggregate-kinds
+    [_ xform f init offset kinds]
+    (let [xf (comp (filter (fn [{seq-no :seq-no {[kind _] :aggregate} :action}]
+                             (and (>= seq-no offset)
+                                  (kind (set kinds)))))
+                   xform)]
+      (transduce xf f init events)))
+
    (max-seq-no
     [_]
     (-> events last :seq-no))
+
    (query-conflicts
     [_ offset aggregate]
-    (filter #(and (>= (:seq-no %) offset)
-                  (= (:aggregate %) aggregate))
+    (filter (fn [{seq-no :seq-no :as ev}]
+              (and (>= seq-no offset)
+                   (= (-> ev :action :aggregate) aggregate)))
             events))
+
    Closable
    (close [_])))
 
@@ -352,7 +375,7 @@
   ([seq-no aggregate]
    (-> (gen/generate (action-gen))
        (assoc :seq-no seq-no)
-       (assoc :aggregate aggregate)))
+       (assoc-in [:action :aggregate] aggregate)))
   ([seq-no]
    (->action seq-no (gen/generate (s/gen :coherence.specs/identity)))))
 
@@ -380,7 +403,7 @@
             spy (p/spies reader)]
         (let [result (conflicts store 2 agg1)]
           (assert/called-once-with? (:query-conflicts spy) reader 2 agg1)
-          (is (= [(events 2) (events 4)] result)))))
+          (is (= (mapv events [2 4]) result)))))
 
     (testing "no conflicts"
       (let [reader (reader events)
@@ -390,20 +413,59 @@
           (assert/called-once-with? (:query-conflicts spy) reader 5 agg3)
           (is (empty? result)))))))
 
-(deftest test-transduce
-  (let [events (for [idx (range 1 5)] (->action idx))]
-    (testing "without offset"
+(deftest test-stream-and-filter-events
+  (let [[agg1 agg2 agg3] (gen/sample (s/gen :coherence.specs/identity) 3)
+        events [(->action 1 agg1)
+                (->action 2 agg2)
+                (->action 3 agg2)
+                (->action 4 agg1)
+                (->action 5 agg3)
+                (->action 6 agg1)]]
+    (testing "stream-events without offset"
       (let [reader (reader events)
             store (->ReaderStore reader)
             spy (p/spies reader)]
-        (let [result (transduce (map identity) conj [] store)]
-          (assert/called-once? (:stream-events spy))
+        (let [result (stream-events (map identity)
+                                    conj
+                                    []
+                                    store)]
+          (assert/called-once? (:read-events spy))
           (is (= events result)))))
 
-    (testing "with offset"
+    (testing "stream-events with offset"
       (let [reader (reader events)
             store (->ReaderStore reader)
             spy (p/spies reader)]
-        (let [result (transduce (map identity) conj [] store :offset 2)]
-          (assert/called-once? (:stream-events spy))
-          (is (= (drop 1 events) result)))))))
+        (let [result (stream-events (map identity)
+                                    conj
+                                    []
+                                    store
+                                    :offset 2)]
+          (assert/called-once? (:read-events spy))
+          (is (= (drop 1 events) result)))))
+
+    (testing "filter-events-by-aggregates"
+      (let [reader (reader events)
+            store (->ReaderStore reader)
+            spy (p/spies reader)]
+        (let [result (filter-events-by-aggregates (map identity)
+                                                  conj
+                                                  []
+                                                  store
+                                                  3
+                                                  [agg2 agg3])]
+          (assert/called-once? (:filter-aggregates spy))
+          (is (= (mapv events [2 4]) result)))))
+
+    (testing "filter-events-by-aggregate-kinds"
+      (let [reader (reader events)
+            store (->ReaderStore reader)
+            spy (p/spies reader)]
+        (let [result (filter-events-by-aggregate-kinds (map identity)
+                                                       conj
+                                                       []
+                                                       store
+                                                       2
+                                                       [(first agg2)])]
+          (assert/called-once? (:filter-aggregate-kinds spy))
+          (is (= (mapv events [1 2]) result)))))))

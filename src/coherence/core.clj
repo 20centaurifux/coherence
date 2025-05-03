@@ -1,5 +1,4 @@
 (ns coherence.core
-  (:refer-clojure :exclude [transduce])
   (:require [clojure.spec.alpha :as s]
             [coherence.specs]
             [com.rpl.defexception :refer [defexception]]
@@ -134,7 +133,9 @@
 ;;; read events
 
 (defprotocol Reader
-  (stream-events [reader xform f init offset])
+  (read-events [reader xform f init offset])
+  (filter-aggregates [reader xform f init offset identities])
+  (filter-aggregate-kinds [reader xform f init offset kinds])
   (max-seq-no [reader])
   (query-conflicts [writer offset [aggregate-kind aggregate-id]]))
 
@@ -154,7 +155,7 @@
   (with-open [r (open-read store)]
     (query-conflicts r offset aggregate)))
 
-(defn transduce
+(defn stream-events
   "Reduces an event stream with a transformation (`xform` `f`). Skips `offset`
    events."
   [xform f init store & {:keys [offset] :or {offset 0}}]
@@ -163,4 +164,28 @@
              (s/valid? :coherence.specs/seq-no offset))]}
   (when (>= offset 0)
     (with-open [r (open-read store)]
-      (stream-events r xform f init offset))))
+      (read-events r xform f init offset))))
+
+(defn filter-events-by-aggregates
+  "Reduces an event stream with a transformation (`xform` `f`). Events are
+   filtered by aggregates. Skips `offset` events."
+  [xform f init store offset identities]
+  {:pre [(store? store)
+         (or (zero? offset)
+             (s/valid? :coherence.specs/seq-no offset))
+         (s/valid? (s/coll-of :coherence.specs/identity :distinct true) identities)]}
+  (when (>= offset 0)
+    (with-open [r (open-read store)]
+      (filter-aggregates r xform f init offset identities))))
+
+(defn filter-events-by-aggregate-kinds
+  "Reduces an event stream with a transformation (`xform` `f`). Events are
+   filtered by aggregate kinds. Skips `offset` events."
+  [xform f init store offset kinds]
+  {:pre [(store? store)
+         (or (zero? offset)
+             (s/valid? :coherence.specs/seq-no offset))
+         (s/valid? (s/coll-of :coherence.specs/kind :distinct true) kinds)]}
+  (when (>= offset 0)
+    (with-open [r (open-read store)]
+      (filter-aggregate-kinds r xform f init offset kinds))))
