@@ -25,7 +25,7 @@ Events have a *sequence number* to preserve order. To trace individual state cha
 
 **coherence** comes with a JDBC implementation for storing and retrieving events. A JDBC driver for a database compatible with [HoneySQL](https://github.com/seancorfield/honeysql) is required.
 
-The example below initializes a SQLite database.
+The example below initializes a SQLite database (which requires the org.xerial/sqlite-jdbc driver).
 
 ```
 (use 'coherence.core)
@@ -54,7 +54,7 @@ The example below initializes a SQLite database.
 An *actor* has a *reason* for applying a *patch* that changes an *aggregate*. Patches may associate values with specified keys and dissociate keys from an aggregate.
 
 ```
-;; Alice creates two new books
+;; Alice adds two books to the store
 (rebase! store
          1
          [{:timestamp (java.time.Instant/now)
@@ -78,7 +78,7 @@ An *actor* has a *reason* for applying a *patch* that changes an *aggregate*. Pa
 An *action* cannot be appended to the event store if the affected aggregate was changed in the meantime. The conflict is returned and the caller has to resolve it. When appending an *action* to the event store, a list of sequence numbers is passed that should be treated as resolved.
 
 ```
-;; Bob creates two books
+;; Bob adds two books to the store
 (rebase! store
          1
          [{:timestamp (java.time.Instant/now)
@@ -124,7 +124,7 @@ An *action* cannot be appended to the event store if the affected aggregate was 
 
 ### Effects & projection
 
-Stored information may depend on external resources. Sometimes data must be made unreadable after a certain point in time due to data protection regulations, for example. In such a case the payload can be stored in encrypted form. The key required for decryption has an expiration date.
+Stored information may depend on external resources. Sometimes data must be made unreadable after a certain point in time due to data protection regulations, for example. In such a case the payload may be stored in encrypted form. The key required for decryption has an expiration date.
 
 In **coherence** *actions* can be linked to any number of *triggers*, which in turn are triggered by an *effect* for a *reason*. If, for instance, a decryption key expires an *effect* event is appended to the event store. If an *effect* is read in during projection, the *actions* of all affected aggregates are replayed.
 
