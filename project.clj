@@ -5,7 +5,7 @@
             :url "https://www.gnu.org/licenses/agpl-3.0"}
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [com.rpl/defexception "0.2.5"]
-                 [de.dixieflatline/pold "0.1.0-SNAPSHOT"]
+                 [de.dixieflatline/pold "0.1.0"]
                  [failjure "2.3.0"]
                  [org.clojure/test.check "1.1.1"]
                  [com.github.seancorfield/next.jdbc "1.3.1002"]
