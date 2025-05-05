@@ -27,7 +27,7 @@ Events have a *sequence number* to preserve order. To trace individual state cha
 
 The example below initializes a SQLite database (which requires the org.xerial/sqlite-jdbc driver).
 
-```
+```clojure
 (use 'coherence.core)
 (use 'coherence.jdbc.core)
 
@@ -53,7 +53,7 @@ The example below initializes a SQLite database (which requires the org.xerial/s
 
 An *actor* has a *reason* for applying a *patch* that changes an *aggregate*. Patches may associate values with specified keys and dissociate keys from an aggregate.
 
-```
+```clojure
 ;; Alice adds two books to the store
 (rebase! store
          1
@@ -77,7 +77,7 @@ An *actor* has a *reason* for applying a *patch* that changes an *aggregate*. Pa
 
 An *action* cannot be appended to the event store if the affected aggregate was changed in the meantime. The conflict is returned and the caller has to resolve it. When appending an *action* to the event store, a list of sequence numbers is passed that should be treated as resolved.
 
-```
+```clojure
 ;; Bob adds two books to the store
 (rebase! store
          1
@@ -128,7 +128,7 @@ Stored information may depend on external resources. Sometimes data must be made
 
 In **coherence** *actions* can be linked to any number of *triggers*, which in turn are triggered by an *effect* for a *reason*. If, for instance, a decryption key expires an *effect* event is appended to the event store. If an *effect* is read in during projection, the *actions* of all affected aggregates are replayed.
 
-```
+```clojure
 ;; Alice stores two receipts with encrypted credit card numbers
 (rebase! store
          2
